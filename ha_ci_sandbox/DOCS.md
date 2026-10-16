@@ -39,10 +39,20 @@ Provide it in one of two ways:
 The bundle is copied to a writable work directory inside the add-on before the
 launcher runs, so the `share` copy is never modified.
 
+## Multiple instances
+
+With `instances: N`, the add-on starts N copies of the launcher, each in its
+own network namespace (so each may bind port 8080) with its own persistent
+storage. The launcher always sees `/data/work` and `/data/hub`; for instance
+N > 1 those are bind mounts of `/data/work-N` and `/data/hub-N`. Instance N is
+reached on container port 8080+N-1; map the ports you need in the add-on's
+Network section. Each instance runs the startup self-test on its own port.
+
 ## Options
 
 | Option | Default | Meaning |
 | --- | --- | --- |
+| `instances` | `1` | How many independent copies of the application to run (1-8). Instance N listens on container port 8080+N-1 (map the port in the Network section) and keeps its own storage, so all instances share one bundle but nothing else. |
 | `bundle_dir` | `/share/ha-ci-sandbox` | Directory on the share holding the bundle |
 | `bundle_url` | unset | Optional tarball to download when no bundle is present |
 | `bundle_sha256` | unset | Optional SHA-256 of that tarball |

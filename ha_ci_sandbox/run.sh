@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Outer supervisor: reads options, fetches the bundle if asked, starts the
-# relays that bridge the sandbox to the outside, then launches inner.sh in a
-# fresh network + mount namespace. Everything the application can reach goes
-# through the Unix sockets in /run/sb.
+# relays that bridge the sandbox to the outside, then launches one inner.sh per
+# instance, each in its own network + mount namespace. Everything an instance
+# can reach goes through the Unix sockets in /run/sb.
 set -euo pipefail
 
 log() { echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] [run] $*"; }
@@ -13,6 +13,7 @@ BUNDLE_URL=$(jq -r '.bundle_url // empty' "$OPTS")
 BUNDLE_SHA=$(jq -r '.bundle_sha256 // empty' "$OPTS")
 JAVA_OPTS=$(jq -r '.java_opts // empty' "$OPTS")
 LOG_LEVEL=$(jq -r '.log_level // "info"' "$OPTS")
+INSTANCES=$(jq -r '.instances // 1' "$OPTS")
 mapfile -t RAW_HOSTS < <(jq -r '.allowed_hosts[]? // empty' "$OPTS")
 
 [ "$LOG_LEVEL" = "debug" ] && set -x
@@ -25,6 +26,11 @@ if [ -n "$NOTES" ]; then
     printf '%s\n' "$NOTES"
     echo "========================================================"
 fi
+
+case "$INSTANCES" in
+    [1-8]) ;;
+    *) log "instances must be 1..8 (got '$INSTANCES'); using 1"; INSTANCES=1 ;;
+esac
 
 has_bundle() { [ -f "$1/app.jar" ] && [ -f "$1/launcher/start.sh" ]; }
 
@@ -85,8 +91,9 @@ fi
 } > /run/sb/hosts
 : > /run/sb/resolv.conf
 
-# Outside egress relays: plain TCP passthrough to <host>:443, so TLS is
-# negotiated end to end between the application and the real host.
+# Outside egress relays, shared by all instances: plain TCP passthrough to
+# <host>:443, so TLS is negotiated end to end between the application and the
+# real host.
 i=11
 for h in "${HOSTS[@]}"; do
     socat "UNIX-LISTEN:/run/sb/egress-$i.sock,fork,unlink-early" "TCP:$h:443" &
@@ -94,53 +101,66 @@ for h in "${HOSTS[@]}"; do
     i=$((i + 1))
 done
 
-# Outside ingress relay: LAN port 8080 -> Unix socket -> inside relay -> app.
-socat "TCP-LISTEN:8080,fork,reuseaddr" "UNIX-CONNECT:/run/sb/ingress.sock" &
-log "Ingress relay listening on 8080"
+# Outside ingress relays: one container port per instance (8080, 8081, ...)
+# -> that instance's Unix socket -> its inside relay -> the app on 8080.
+for n in $(seq 1 "$INSTANCES"); do
+    port=$((8080 + n - 1))
+    socat "TCP-LISTEN:$port,fork,reuseaddr" "UNIX-CONNECT:/run/sb/ingress-$n.sock" &
+    log "Instance $n: ingress relay on container port $port"
+done
 
-# Ingress half of the self-test: inner.sh serves a tiny HTTP page on 8080 and
-# signals readiness; we fetch it through the public port and report.
-(
-    for _ in $(seq 1 120); do
-        [ -f /run/sb/selftest-ready ] && break
-        sleep 1
-    done
-    if [ -f /run/sb/selftest-ready ]; then
-        code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:8080/ || true)
-        if [ "$code" = "200" ]; then
-            log "Self-test ingress: OK (HTTP 200 through port 8080)"
+# Ingress half of the self-test, per instance: inner.sh serves a tiny HTTP page
+# on its 8080 and signals readiness; we fetch it through the instance's port.
+for n in $(seq 1 "$INSTANCES"); do
+    (
+        port=$((8080 + n - 1))
+        for _ in $(seq 1 120); do
+            [ -f "/run/sb/selftest-ready-$n" ] && break
+            sleep 1
+        done
+        if [ -f "/run/sb/selftest-ready-$n" ]; then
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://127.0.0.1:$port/" || true)
+            if [ "$code" = "200" ]; then
+                log "Instance $n self-test ingress: OK (HTTP 200 through port $port)"
+            else
+                log "Instance $n self-test ingress: FAILED (got '$code' through port $port)"
+            fi
         else
-            log "Self-test ingress: FAILED (got '$code' through port 8080)"
+            log "Instance $n self-test ingress: skipped (sandbox never signalled readiness)"
         fi
-    else
-        log "Self-test ingress: skipped (sandbox never signalled readiness)"
-    fi
-    touch /run/sb/selftest-done
-) &
+        touch "/run/sb/selftest-done-$n"
+    ) &
+done
 
 export BUNDLE_DIR JAVA_OPTS LOG_LEVEL
-log "Starting sandbox namespace"
 
-# On stop, hand SIGTERM to inner.sh (which forwards it to the launcher) so the
-# application can shut down cleanly before Supervisor's kill timeout.
+# On stop, hand SIGTERM to every inner.sh (each forwards it to its launcher) so
+# the applications can shut down cleanly before Supervisor's kill timeout.
 stopping=0
 on_term() {
     stopping=1
-    log "Stop requested; terminating sandbox"
-    # Target the bash running inner.sh (cmdline "bash /inner.sh"), not the unshare parent.
+    log "Stop requested; terminating all instances"
+    # Target the bash processes running inner.sh (cmdline "bash /inner.sh"), not the unshare parents.
     pkill -TERM -f 'bash /inner.sh' 2>/dev/null || true
 }
 trap on_term TERM INT
 
+PIDS=()
+for n in $(seq 1 "$INSTANCES"); do
+    log "Starting sandbox namespace for instance $n"
+    INSTANCE=$n unshare --net --mount --fork --propagation private /inner.sh &
+    PIDS+=("$!")
+done
+
 rc=0
-unshare --net --mount --fork --propagation private /inner.sh &
-SB=$!
-wait "$SB" || rc=$?
+for p in "${PIDS[@]}"; do
+    wait "$p" || rc=$?
+done
 if [ "$stopping" = 1 ]; then
-    log "Sandbox stopped (code $rc)"
+    log "All instances stopped (last code $rc)"
     exit 0
 fi
-log "Sandbox exited with code $rc; container stays up so logs remain readable. Restart the add-on to run again."
+log "All instances exited (last code $rc); container stays up so logs remain readable. Restart the add-on to run again."
 trap 'exit 0' TERM INT
 sleep infinity &
 wait $!

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+
+- New `instances` option (1-8): run several independent copies of the
+  application from one bundle, each in its own namespace with its own storage,
+  on container ports 8080, 8081, ...
+
 ## 0.1.2
 
 - New `notes` option: free text shown in the configuration tab and printed at
