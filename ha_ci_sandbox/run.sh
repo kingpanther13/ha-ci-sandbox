@@ -13,26 +13,44 @@ BUNDLE_URL=$(jq -r '.bundle_url // empty' "$OPTS")
 BUNDLE_SHA=$(jq -r '.bundle_sha256 // empty' "$OPTS")
 JAVA_OPTS=$(jq -r '.java_opts // empty' "$OPTS")
 LOG_LEVEL=$(jq -r '.log_level // "info"' "$OPTS")
-mapfile -t HOSTS < <(jq -r '.allowed_hosts[]? // empty' "$OPTS")
+mapfile -t RAW_HOSTS < <(jq -r '.allowed_hosts[]? // empty' "$OPTS")
 
 [ "$LOG_LEVEL" = "debug" ] && set -x
 
 has_bundle() { [ -f "$1/app.jar" ] && [ -f "$1/launcher/start.sh" ]; }
 
+# Only plain DNS names are accepted (they end up in the hosts file and in socat
+# addresses); duplicates are dropped.
+HOSTS=()
+for h in "${RAW_HOSTS[@]}"; do
+    h=${h,,}
+    if [[ ! "$h" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$ ]]; then
+        log "Ignoring invalid allowed_hosts entry: '$h'"
+        continue
+    fi
+    dup=0
+    for e in "${HOSTS[@]}"; do [ "$e" = "$h" ] && dup=1; done
+    [ "$dup" = 1 ] || HOSTS+=("$h")
+done
+
 mkdir -p /run/sb /data
 rm -f /run/sb/*.sock /run/sb/selftest-* /run/sb/hosts
 
 # Optional download path: only used when neither bundle location is populated.
+# Failures here are logged, not fatal: the sandbox still starts and waits.
 if ! has_bundle "$BUNDLE_DIR" && ! has_bundle /data/bundle && [ -n "$BUNDLE_URL" ]; then
-    log "No bundle present; downloading $BUNDLE_URL"
-    curl -fsSL --retry 3 -o /data/bundle.tar.gz "$BUNDLE_URL"
-    if [ -n "$BUNDLE_SHA" ]; then
+    log "No bundle present; downloading ${BUNDLE_URL%%\?*}"
+    if ! curl -fsSL --retry 3 -o /data/bundle.tar.gz "$BUNDLE_URL"; then
+        log "Download failed; continuing without a bundle"
+        rm -f /data/bundle.tar.gz
+    fi
+    if [ -f /data/bundle.tar.gz ] && [ -n "$BUNDLE_SHA" ]; then
         echo "$BUNDLE_SHA  /data/bundle.tar.gz" | sha256sum -c - \
             || { log "Checksum mismatch for downloaded bundle; refusing it"; rm -f /data/bundle.tar.gz; }
     fi
     if [ -f /data/bundle.tar.gz ]; then
         rm -rf /data/bundle && mkdir -p /data/bundle
-        tar -xzf /data/bundle.tar.gz -C /data/bundle
+        tar -xzf /data/bundle.tar.gz -C /data/bundle || log "Could not extract the downloaded archive"
         rm -f /data/bundle.tar.gz
         # Accept a tarball whose content sits in one top-level directory.
         if ! has_bundle /data/bundle; then
@@ -49,7 +67,7 @@ fi
 # One loopback alias per allowed host; the sandbox resolves names only through
 # this file, and only these aliases have a listener behind them.
 {
-    echo "127.0.0.1 localhost"
+    echo "127.0.0.1 localhost $(hostname)"
     i=11
     for h in "${HOSTS[@]}"; do
         echo "127.0.0.$i $h"
@@ -93,7 +111,27 @@ log "Ingress relay listening on 8080"
 
 export BUNDLE_DIR JAVA_OPTS LOG_LEVEL
 log "Starting sandbox namespace"
+
+# On stop, hand SIGTERM to inner.sh (which forwards it to the launcher) so the
+# application can shut down cleanly before Supervisor's kill timeout.
+stopping=0
+on_term() {
+    stopping=1
+    log "Stop requested; terminating sandbox"
+    # Target the bash running inner.sh (cmdline "bash /inner.sh"), not the unshare parent.
+    pkill -TERM -f 'bash /inner.sh' 2>/dev/null || true
+}
+trap on_term TERM INT
+
 rc=0
-unshare --net --mount --fork --propagation private /inner.sh || rc=$?
+unshare --net --mount --fork --propagation private /inner.sh &
+SB=$!
+wait "$SB" || rc=$?
+if [ "$stopping" = 1 ]; then
+    log "Sandbox stopped (code $rc)"
+    exit 0
+fi
 log "Sandbox exited with code $rc; container stays up so logs remain readable. Restart the add-on to run again."
-sleep infinity
+trap 'exit 0' TERM INT
+sleep infinity &
+wait $!

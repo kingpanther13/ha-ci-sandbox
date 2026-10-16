@@ -11,6 +11,9 @@ BUNDLE_DIR=${BUNDLE_DIR:-/share/ha-ci-sandbox}
 
 has_bundle() { [ -f "$1/app.jar" ] && [ -f "$1/launcher/start.sh" ]; }
 
+# Until the launcher runs, a stop just ends the wait.
+trap 'log "Stop requested while waiting"; exit 0' TERM INT
+
 ip link set lo up
 mount --bind /run/sb/hosts /etc/hosts
 mount --bind /run/sb/resolv.conf /etc/resolv.conf
@@ -82,7 +85,8 @@ while true; do
     if has_bundle "$BUNDLE_DIR"; then SRC=$BUNDLE_DIR; break; fi
     if has_bundle /data/bundle; then SRC=/data/bundle; break; fi
     log "No bundle found at $BUNDLE_DIR (expects app.jar and launcher/start.sh). Waiting..."
-    sleep 30
+    sleep 30 &
+    wait $! || exit 0
 done
 
 log "Using bundle from $SRC"
@@ -93,7 +97,10 @@ chmod +x /data/work/launcher/start.sh
 cd /data/work
 export JAVA_OPTS="${JAVA_OPTS:-}"
 log "Starting launcher with JAVA_OPTS='$JAVA_OPTS'"
+./launcher/start.sh &
+LP=$!
+trap 'log "Forwarding stop to launcher"; kill -TERM "$LP" 2>/dev/null || true' TERM INT
 rc=0
-./launcher/start.sh || rc=$?
+wait "$LP" || rc=$?
 log "Launcher exited with code $rc"
 exit "$rc"
