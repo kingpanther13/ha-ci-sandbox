@@ -1,0 +1,39 @@
+name: HA CI Sandbox 2
+version: "0.1.2"
+slug: ha_ci_sandbox_2
+description: Run a JVM application bundle in a network-isolated sandbox
+url: https://github.com/kingpanther13/ha-ci-sandbox
+arch:
+  - amd64
+startup: application
+boot: manual
+ports:
+  8080/tcp: 8080
+ports_description:
+  8080/tcp: HTTP port of the sandboxed application
+map:
+  - type: share
+    read_only: true
+privileged:
+  - SYS_ADMIN
+  - NET_ADMIN
+apparmor: true
+options:
+  bundle_dir: /share/ha-ci-sandbox-2
+  allowed_hosts:
+    - raw.githubusercontent.com
+    - github.com
+    - api.github.com
+    - objects.githubusercontent.com
+    - codeload.github.com
+  java_opts: "-Xms336m -Xmx336m -XX:MaxMetaspaceSize=208m -Xss224k"
+  log_level: info
+schema:
+  bundle_dir: str
+  bundle_url: str?
+  bundle_sha256: str?
+  allowed_hosts:
+    - str
+  java_opts: str
+  log_level: list(info|debug)
+  notes: str?

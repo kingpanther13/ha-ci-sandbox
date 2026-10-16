@@ -15,3 +15,9 @@ HTTPS, and nothing else.
 
 The add-on's documentation tab describes the options, the sandbox and the
 startup self-test.
+
+## Second instance
+
+`ha_ci_sandbox_2` is an identical copy with its own slug, storage and default
+bundle directory (`/share/ha-ci-sandbox-2`), so two sandboxes can run side by side.
+Keep the two folders in sync when changing the add-on.
