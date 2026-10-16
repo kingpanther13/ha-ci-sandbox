@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2
+
+- New `notes` option: free text shown in the configuration tab and printed at
+  the top of the add-on log on every start.
+
 ## 0.1.1
 
 - A failed bundle download no longer stops the add-on; it logs and waits.

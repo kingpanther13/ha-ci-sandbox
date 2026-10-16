@@ -1,5 +1,5 @@
 name: HA CI Sandbox
-version: "0.1.1"
+version: "0.1.2"
 slug: ha_ci_sandbox
 description: Run a JVM application bundle in a network-isolated sandbox
 url: https://github.com/kingpanther13/ha-ci-sandbox
@@ -36,3 +36,4 @@ schema:
     - str
   java_opts: str
   log_level: list(info|debug)
+  notes: str?

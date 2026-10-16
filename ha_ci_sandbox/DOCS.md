@@ -49,6 +49,7 @@ launcher runs, so the `share` copy is never modified.
 | `allowed_hosts` | GitHub hostnames | Hostnames the application may reach on port 443 |
 | `java_opts` | `-Xms336m -Xmx336m ...` | Passed to the launcher as `JAVA_OPTS` |
 | `log_level` | `info` | `debug` traces every shell command |
+| `notes` | unset | Free text for operators (what the bundle is, how to reach it). Printed at the top of the add-on log on every start. |
 
 ## Startup self-test
 

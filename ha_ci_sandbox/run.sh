@@ -17,6 +17,15 @@ mapfile -t RAW_HOSTS < <(jq -r '.allowed_hosts[]? // empty' "$OPTS")
 
 [ "$LOG_LEVEL" = "debug" ] && set -x
 
+# Operator notes (the `notes` option) are echoed first so anyone reading this
+# log knows what the bundle is and how to reach it.
+NOTES=$(jq -r '.notes // empty' "$OPTS")
+if [ -n "$NOTES" ]; then
+    echo "==================== OPERATOR NOTES ===================="
+    printf '%s\n' "$NOTES"
+    echo "========================================================"
+fi
+
 has_bundle() { [ -f "$1/app.jar" ] && [ -f "$1/launcher/start.sh" ]; }
 
 # Only plain DNS names are accepted (they end up in the hosts file and in socat
