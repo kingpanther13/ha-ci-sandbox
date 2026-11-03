@@ -14,4 +14,4 @@ HTTPS, and nothing else.
    the add-on. See `docs/BUNDLE.md` for what a bundle is.
 
 The add-on's documentation tab describes the options, the sandbox, running
-several instances from one bundle, and the startup self-test.
+several instances with shared or separate bundles and data profiles, and the startup self-test.

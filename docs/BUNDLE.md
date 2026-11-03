@@ -43,3 +43,8 @@ Anything else in the directory is copied along and available to the launcher.
 
 The share copy is read-only to the add-on; the launcher runs on a writable
 copy under `/data/work`, recreated from the source on every start.
+
+Per-instance `instance_profiles` can select different bundles and named persistent
+data stores. The launcher contract stays the same: every instance sees its own
+`/data/work` and `/data/hub`. See the add-on documentation for configuration and
+how to return to a previously used profile.

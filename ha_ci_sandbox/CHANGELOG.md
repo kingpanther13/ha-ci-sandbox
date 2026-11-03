@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- Select application bundles and persistent data profiles per instance.
+- Keep existing instances and databases unchanged when no profiles are configured.
+- Keep named-profile downloads separate by source and checksum.
+
 ## 0.2.0
 
 - New `instances` option (1-8): run several independent copies of the
