@@ -4,7 +4,7 @@ root=$(mktemp -d)
 name="sandbox-profile-test-$$"
 cleanup() {
     docker rm -f "$name" >/dev/null 2>&1 || true
-    rm -rf -- "$root"
+    sudo rm -rf -- "$root"
 }
 trap cleanup EXIT
 mkdir -p "$root/data" "$root/share/main/launcher" "$root/share/preview/launcher"
