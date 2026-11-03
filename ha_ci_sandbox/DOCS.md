@@ -48,11 +48,48 @@ N > 1 those are bind mounts of `/data/work-N` and `/data/hub-N`. Instance N is
 reached on container port 8080+N-1; map the ports you need in the add-on's
 Network section. Each instance runs the startup self-test on its own port.
 
+### Different versions and saved data
+
+Use `instance_profiles` to select a bundle and persistent data profile for an
+individual instance. For example, keep the current instance unchanged and run
+another version alongside it:
+
+```yaml
+instances: 2
+bundle_dir: /share/ha-ci-sandbox
+instance_profiles:
+  - instance: 2
+    profile: preview-v2
+    bundle_dir: /share/app-preview-v2
+```
+
+Instance 1 keeps its existing database. Instance 2 uses the selected bundle
+and a new database in `/data/profiles/preview-v2/instance-2/hub`. The launcher
+still sees `/data/hub` and `/data/work`. Profile names allow letters, digits,
+underscores and hyphens (1–64 characters, starting with a letter or digit).
+
+Restart the add-on after changing profiles or bundles; this restarts every
+instance. Choose a different profile when trying another version to give it
+fresh data. Returning to the previous profile and instance number reuses that
+profile's saved data. Removing an entry returns that instance to its original
+storage; it does not delete the named profile. No database is copied or migrated
+automatically. Even when two instances use the same profile name, they keep
+separate databases.
+
+Each entry may instead supply `bundle_url` and `bundle_sha256`. Downloads for
+named profiles are cached separately by source and checksum; changing either
+selects a new cache on restart. An explicit bundle source does not fall back to
+the shared bundle or shared download URL. A profile with no source overrides
+inherits the global bundle settings. Download or checksum failures leave only
+that instance waiting for its bundle; other instances can still start. Restart
+to retry a failed download. A missing directory bundle waits for it to appear.
+
 ## Options
 
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `instances` | `1` | How many independent copies of the application to run (1-8). Instance N listens on container port 8080+N-1 (map the port in the Network section) and keeps its own storage, so all instances share one bundle but nothing else. |
+| `instance_profiles` | `[]` | Per-instance overrides: `instance`, `profile`, and optional `bundle_dir`, `bundle_url`, `bundle_sha256`. Unlisted instances keep the original shared bundle and existing data paths. |
 | `bundle_dir` | `/share/ha-ci-sandbox` | Directory on the share holding the bundle |
 | `bundle_url` | unset | Optional tarball to download when no bundle is present |
 | `bundle_sha256` | unset | Optional SHA-256 of that tarball |

@@ -8,7 +8,7 @@ RUN apt-get update \
         socat iproute2 util-linux jq curl ca-certificates python3 procps \
     && rm -rf /var/lib/apt/lists/*
 
-COPY run.sh inner.sh /
+COPY run.sh inner.sh instances.py /
 RUN chmod +x /run.sh /inner.sh
 
 CMD ["/run.sh"]

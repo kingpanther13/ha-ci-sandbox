@@ -11,7 +11,8 @@ INSTANCE=${INSTANCE:-1}
 log() { echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] [sandbox $INSTANCE] $*"; }
 
 [ "${LOG_LEVEL:-info}" = "debug" ] && set -x
-BUNDLE_DIR=${BUNDLE_DIR:-/share/ha-ci-sandbox}
+BUNDLE_DIR=${BUNDLE_DIR-/share/ha-ci-sandbox}
+BUNDLE_CACHE=${BUNDLE_CACHE:-/data/bundle}
 
 has_bundle() { [ -f "$1/app.jar" ] && [ -f "$1/launcher/start.sh" ]; }
 
@@ -24,11 +25,11 @@ mount --bind /run/sb/resolv.conf /etc/resolv.conf
 
 # Per-instance persistent storage behind the launcher's fixed paths.
 mkdir -p /data/hub /data/work
-if [ "$INSTANCE" != "1" ]; then
-    mkdir -p "/data/hub-$INSTANCE" "/data/work-$INSTANCE"
-    mount --bind "/data/hub-$INSTANCE" /data/hub
-    mount --bind "/data/work-$INSTANCE" /data/work
-fi
+DATA_DIR=${DATA_DIR:-/data/hub}
+WORK_DIR=${WORK_DIR:-/data/work}
+mkdir -p "$DATA_DIR" "$WORK_DIR"
+[ "$DATA_DIR" = /data/hub ] || mount --bind "$DATA_DIR" /data/hub
+[ "$WORK_DIR" = /data/work ] || mount --bind "$WORK_DIR" /data/work
 
 # Inside egress listeners: 127.0.0.N:443 -> shared Unix socket -> outside relay.
 HOSTS=()
@@ -95,8 +96,8 @@ log "Self-test finished"
 # ---- bundle ------------------------------------------------------------------
 SRC=""
 while true; do
-    if has_bundle "$BUNDLE_DIR"; then SRC=$BUNDLE_DIR; break; fi
-    if has_bundle /data/bundle; then SRC=/data/bundle; break; fi
+    if [ -n "$BUNDLE_DIR" ] && has_bundle "$BUNDLE_DIR"; then SRC=$BUNDLE_DIR; break; fi
+    if has_bundle "$BUNDLE_CACHE"; then SRC=$BUNDLE_CACHE; break; fi
     log "No bundle found at $BUNDLE_DIR (expects app.jar and launcher/start.sh). Waiting..."
     sleep 30 &
     wait $! || exit 0

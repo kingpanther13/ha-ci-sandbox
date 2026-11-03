@@ -8,9 +8,6 @@ set -euo pipefail
 log() { echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] [run] $*"; }
 
 OPTS=/data/options.json
-BUNDLE_DIR=$(jq -r '.bundle_dir // "/share/ha-ci-sandbox"' "$OPTS")
-BUNDLE_URL=$(jq -r '.bundle_url // empty' "$OPTS")
-BUNDLE_SHA=$(jq -r '.bundle_sha256 // empty' "$OPTS")
 JAVA_OPTS=$(jq -r '.java_opts // empty' "$OPTS")
 LOG_LEVEL=$(jq -r '.log_level // "info"' "$OPTS")
 INSTANCES=$(jq -r '.instances // 1' "$OPTS")
@@ -32,8 +29,6 @@ case "$INSTANCES" in
     *) log "instances must be 1..8 (got '$INSTANCES'); using 1"; INSTANCES=1 ;;
 esac
 
-has_bundle() { [ -f "$1/app.jar" ] && [ -f "$1/launcher/start.sh" ]; }
-
 # Only plain DNS names are accepted (they end up in the hosts file and in socat
 # addresses); duplicates are dropped.
 HOSTS=()
@@ -51,33 +46,8 @@ done
 mkdir -p /run/sb /data
 rm -f /run/sb/*.sock /run/sb/selftest-* /run/sb/hosts
 
-# Optional download path: only used when neither bundle location is populated.
-# Failures here are logged, not fatal: the sandbox still starts and waits.
-if ! has_bundle "$BUNDLE_DIR" && ! has_bundle /data/bundle && [ -n "$BUNDLE_URL" ]; then
-    log "No bundle present; downloading ${BUNDLE_URL%%\?*}"
-    if ! curl -fsSL --retry 3 -o /data/bundle.tar.gz "$BUNDLE_URL"; then
-        log "Download failed; continuing without a bundle"
-        rm -f /data/bundle.tar.gz
-    fi
-    if [ -f /data/bundle.tar.gz ] && [ -n "$BUNDLE_SHA" ]; then
-        echo "$BUNDLE_SHA  /data/bundle.tar.gz" | sha256sum -c - \
-            || { log "Checksum mismatch for downloaded bundle; refusing it"; rm -f /data/bundle.tar.gz; }
-    fi
-    if [ -f /data/bundle.tar.gz ]; then
-        rm -rf /data/bundle && mkdir -p /data/bundle
-        tar -xzf /data/bundle.tar.gz -C /data/bundle || log "Could not extract the downloaded archive"
-        rm -f /data/bundle.tar.gz
-        # Accept a tarball whose content sits in one top-level directory.
-        if ! has_bundle /data/bundle; then
-            inner=$(find /data/bundle -mindepth 1 -maxdepth 1 -type d | head -n1 || true)
-            if [ -n "$inner" ] && has_bundle "$inner"; then
-                mv "$inner"/* /data/bundle/ && rmdir "$inner"
-            fi
-        fi
-        has_bundle /data/bundle && log "Bundle extracted to /data/bundle" \
-            || log "Downloaded archive does not contain app.jar and launcher/start.sh"
-    fi
-fi
+# Validate every profile before starting applications or relays.
+python3 /instances.py --options "$OPTS" --output /run/sb/instances.json
 
 # One loopback alias per allowed host; the sandbox resolves names only through
 # this file, and only these aliases have a listener behind them.
@@ -132,7 +102,7 @@ for n in $(seq 1 "$INSTANCES"); do
     ) &
 done
 
-export BUNDLE_DIR JAVA_OPTS LOG_LEVEL
+export JAVA_OPTS LOG_LEVEL
 
 # On stop, hand SIGTERM to every inner.sh (each forwards it to its launcher) so
 # the applications can shut down cleanly before Supervisor's kill timeout.
@@ -148,7 +118,13 @@ trap on_term TERM INT
 PIDS=()
 for n in $(seq 1 "$INSTANCES"); do
     log "Starting sandbox namespace for instance $n"
-    INSTANCE=$n unshare --net --mount --fork --propagation private /inner.sh &
+    config=$(jq -c --argjson n "$n" '.[] | select(.instance == $n)' /run/sb/instances.json)
+    INSTANCE=$n \
+        BUNDLE_DIR=$(jq -r '.bundle_dir' <<< "$config") \
+        BUNDLE_CACHE=$(jq -r '.cache_dir' <<< "$config") \
+        DATA_DIR=$(jq -r '.data_dir' <<< "$config") \
+        WORK_DIR=$(jq -r '.work_dir' <<< "$config") \
+        unshare --net --mount --fork --propagation private /inner.sh &
     PIDS+=("$!")
 done
 
