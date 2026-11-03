@@ -88,6 +88,7 @@ class InstanceProfiles(unittest.TestCase):
             with patch.object(instances.urllib.request, 'urlopen', side_effect=urllib.error.URLError('offline')):
                 instances.prepare_instances(plans, root / 'instances.json')
             self.assertEqual(len(json.loads((root / 'instances.json').read_text())), 2)
+            self.assertNotIn('https://example.com/missing.tgz', (root / 'instances.json').read_text())
             self.assertTrue(Path(plans[0]['data_dir']).is_dir())
             self.assertFalse(instances.has_bundle(plans[1]['cache_dir']))
 

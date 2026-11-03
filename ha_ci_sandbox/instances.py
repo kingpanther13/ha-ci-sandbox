@@ -116,7 +116,10 @@ def prepare_instances(plans, output):
             print(f"Instance {plan['instance']} bundle preparation failed ({type(error).__name__}); waiting for its bundle.", flush=True)
         for key in ('data_dir', 'work_dir'):
             Path(plan[key]).mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(plans))
+    # The shell's debug tracing and application namespaces need paths, not signed URLs.
+    runtime_plans = [{key: value for key, value in plan.items()
+                      if key not in ('bundle_url', 'bundle_sha256')} for plan in plans]
+    output.write_text(json.dumps(runtime_plans))
 
 
 def main():
