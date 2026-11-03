@@ -30,7 +30,7 @@ def resolve(options):
         source = row if custom_source else options
         directory = source.get('bundle_dir') or ('' if custom_source else '/share/ha-ci-sandbox')
         url = source.get('bundle_url') or ''
-        checksum = (row.get('bundle_sha256', source.get('bundle_sha256')) or '').lower()
+        checksum = (row.get('bundle_sha256') or source.get('bundle_sha256') or '').lower()
         if directory and (not directory.startswith('/share/') or '..' in PurePosixPath(directory).parts):
             raise ValueError('bundle_dir must be a directory below /share')
         if url and urllib.parse.urlsplit(url).scheme not in ('http', 'https'):

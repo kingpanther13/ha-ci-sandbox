@@ -76,6 +76,16 @@ class InstanceProfiles(unittest.TestCase):
         self.assertEqual(plan['bundle_sha256'], '')
         self.assertEqual(plan['bundle_url'], '')
 
+    def test_null_profile_checksum_preserves_inherited_verification(self):
+        checksum = 'a' * 64
+        plans = instances.resolve({'instances': 2, 'bundle_sha256': checksum,
+            'bundle_url': 'https://example.com/shared.tgz', 'instance_profiles': [
+                {'instance': 1, 'profile': 'inherited', 'bundle_sha256': None},
+                {'instance': 2, 'profile': 'custom', 'bundle_sha256': None,
+                 'bundle_url': 'https://example.com/custom.tgz'}]})
+        self.assertEqual(plans[0]['bundle_sha256'], checksum)
+        self.assertEqual(plans[1]['bundle_sha256'], '')
+
     def test_download_failure_keeps_other_instances_available(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

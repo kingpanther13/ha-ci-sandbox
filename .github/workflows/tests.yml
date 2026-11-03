@@ -8,6 +8,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: python3 -m unittest discover -s tests -v
-      - run: bash -n ha_ci_sandbox/run.sh ha_ci_sandbox/inner.sh
+      - run: |
+          bash -n ha_ci_sandbox/run.sh
+          bash -n ha_ci_sandbox/inner.sh
       - run: docker build -t sandbox-profile-test ha_ci_sandbox
       - run: bash tests/smoke_profiles.sh
